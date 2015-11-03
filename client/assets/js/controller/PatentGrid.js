@@ -19,8 +19,14 @@
 		};
 
 		const numGridFilter = (searchTerm, cellValue) => {
-			const pattern = /^\s*(>|>\s*=|<|<\s*=|=)\s*(\d+|\d*\.\d+)\s*(?:(>|>\s*=|<|<\s*=|=)\s*(\d+|\d*\.\d+))?\s*$/;
+			if(angular.isUndefined(searchTerm) || searchTerm === '') { return true; }
+	
+			const subPattern = '(>|>\\s*=|<|<\\s*=|=|<\\s*>|!\\s*=)\\s*(\\d+|\\d*\\\\.\\d+|\\d+\\\\.\\d*)';
+			const pattern = new RegExp(`^\\s*${subPattern}\\s*(?:${subPattern})?\\s*$`);
 			const result = searchTerm.match(pattern);
+			const trimmer = (s) => s.replace(/\s+|\\/g, '');
+			const parseFun = (v) => ((v | 0) === v) ? parseInt : parseFloat;
+			const parser = parseFun(cellValue);
 
 			const operations = {
 				'>': (left, right) => left > right,
@@ -28,20 +34,17 @@
 				'<': (left, right) => left < right,
 				'<=': (left, right) => left <= right,
 				'=': (left, right) => left === right,
+				'!=': (left, right) => left !== right,
+				'<>': (left, right) => left !== right,
 			};
 
 			if(result) {
-				let [, op1, v1, ...between] = result;
-				let result = operations(op1.replace(/\s+/g, ''))(cellValue, parseInt(v1));
-
-				if(between) {
-					let [op1, v2] = between;
-					return result && operations(op2.replace(/\s+/g, ''))(cellValue, parseInt(v2));
-				}
-				return result;
-			} else {
-				return cellValue === parseInt(searchTerm);
+				let [, op1, v1, op2, v2] = result;
+				let output = operations[trimmer(op1)](cellValue, parser(trimmer(v1)));
+				return op2 ? output && operations[trimmer(op2)](cellValue, parser(trimmer(v2))) : output;
 			}
+
+			return cellValue === parser(trimmer(searchTerm));
 		};
 
 		const gridHeaders = {
@@ -63,40 +66,80 @@
 			Defs: 'Defs'
 		};
 
-		const gridNumberFilter = {
-			noTerm: true,
-			condition: numGridFilter
+		const preferences = (() => {
+			let p = localStorage.getItem('insight.preferences');
+			if(!p) {
+				p = { patentGrid: { visibleColumns: ['Pat#', 'Topic Cluster', 'Score'] } };
+				localStorage.setItem('insight.preferences', JSON.stringify(p));
+				return p;
+			}
+			return JSON.parse(p);
+		})();
+
+		const updatePreferences = () => {
+			preferences.patentGrid.visibleColumns = gridColumns.filter((col) => col.visible).map((col) => col.field);
+			localStorage.setItem('insight.preferences', JSON.stringify(preferences));	
 		};
+
+		const isVisibleColumn = (name) => preferences.patentGrid.visibleColumns.indexOf(name) !== -1;
+
+		let gridColumns = [
+	    { field: gridHeaders.Patent, },
+	    { field: gridHeaders.Title, },
+	    { field: gridHeaders.TopicCluster, },
+	    { field: gridHeaders.Score, type: 'number', filter: { noTerm: true, condition: numGridFilter } },
+	    { field: gridHeaders.ShortestClaim, type: 'number', filter: { noTerm: true, condition: numGridFilter } },
+	    { field: gridHeaders.CurrentAssignee, },
+	    { field: gridHeaders.IPC, },
+	    { field: gridHeaders.Family, },
+	    { field: gridHeaders.ForwardRefs, type: 'number', filter: { noTerm: true, condition: numGridFilter } },
+	    { field: gridHeaders.BackwardRefs, type: 'number', filter: { noTerm: true, condition: numGridFilter } },
+	    { field: gridHeaders.IssuedDate, type: 'string', sortingAlgorithm: dateGridSorter },
+	    { field: gridHeaders.FilingDate, type: 'string', sortingAlgorithm: dateGridSorter },
+	    { field: gridHeaders.PriorityDate, type: 'string', sortingAlgorithm: dateGridSorter },
+	    { field: gridHeaders.GrantTime, type: 'number', filter: { noTerm: true, condition: numGridFilter } },
+	    { field: gridHeaders.Continuances, type: 'number', filter: { noTerm: true, condition: numGridFilter } },
+	    { field: gridHeaders.Defs, type: 'number', filter: { noTerm: true, condition: numGridFilter } },
+	  ];
+
+	  gridColumns.forEach((col) => col.visible = isVisibleColumn(col.field));
+
+
+	  const menuItems = gridColumns.map((col) => {
+	  	return {
+	  		title: col.field,
+	  		icon: col.visible ? 'ui-grid-icon-ok' : 'ui-grid-icon-cancel',
+	  		action: ($event) => {
+	  			col.visible = !col.visible;
+	  			this.icon = col.visible ? 'ui-grid-icon-ok' : 'ui-grid-icon-cancel';
+	  			$scope.gridApi.core.notifyDataChange(uiGridConstants.dataChange.COLUMN);
+	  		}
+	  	};
+	  });
+
+	  gridColumns.forEach((col) => {
+	  	col.enableHiding = false;
+	  	col.menuItems = menuItems;
+	  });
+
 
 		$scope.grid = {
 	    enableSorting: true,
 	    enableFiltering: true,
-	    columnDefs: [
-	      { field: gridHeaders.Patent, },
-	      { field: gridHeaders.Title, },
-	      { field: gridHeaders.TopicCluster, },
-	      { field: gridHeaders.Score, type: 'number', filter: gridNumberFilter },
-	      { field: gridHeaders.ShortestClaim, type: 'number', filter: gridNumberFilter },
-	      { field: gridHeaders.CurrentAssignee, },
-	      { field: gridHeaders.IPC, },
-	      { field: gridHeaders.Family, },
-	      { field: gridHeaders.ForwardRefs, type: 'number', filter: gridNumberFilter },
-	      { field: gridHeaders.BackwardRefs, type: 'number', filter: gridNumberFilter },
-	      { field: gridHeaders.IssuedDate, type: 'string', sortingAlgorithm: dateGridSorter },
-	      { field: gridHeaders.FilingDate, type: 'string', sortingAlgorithm: dateGridSorter },
-	      { field: gridHeaders.PriorityDate, type: 'string', sortingAlgorithm: dateGridSorter },
-	      { field: gridHeaders.GrantTime, type: 'number', filter: gridNumberFilter },
-	      { field: gridHeaders.Continuances, type: 'number', filter: gridNumberFilter },
-	      { field: gridHeaders.Defs, type: 'number', filter: gridNumberFilter },
-	    ],
+	    enableColumnMenu: true,
+	    columnDefs: gridColumns,
 	    onRegisterApi: function( gridApi ) {
 	      $scope.gridApi = gridApi;
+	      gridApi.core.registerColumnsProcessor((cols) => {
+	      	updatePreferences();
+	      	return cols;
+	      });
 	    },
 	    data: []
 	  };
 
 	  const fillPatentGrid = (data) => {
-	  	data.map((d) => {
+	  	$scope.grid.data = $scope.grid.data.concat(data.map((d) => {
 		    let {
 		    	patnum, title, topic_cluster, overall_score, length_of_shortest_claim,
 		    	current_assignee, ipc_class, patent_family, forward_refs, backward_refs,
@@ -119,9 +162,9 @@
 					[gridHeaders.PriorityDate]: priority_date,
 					[gridHeaders.GrantTime]: +grant_time,
 					[gridHeaders.Continuances]: +open_continuances,
-					[gridHeaders.Defs]: count_of_defendants
+					[gridHeaders.Defs]: +count_of_defendants
 		    };
-	  	});
+	  	}));
 	  };
 
 	 	const loadPatentGrid = (page=1) => {

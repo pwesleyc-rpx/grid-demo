@@ -1,2 +1,7 @@
 @import "settings";
 @import "foundation";
+
+ul.ui-grid-menu-items {
+  overflow: auto;
+  max-height: 317px;
+}
